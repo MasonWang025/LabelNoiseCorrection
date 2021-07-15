@@ -12,30 +12,35 @@ from matplotlib import pyplot as plt
 
 from sklearn.mixture import GaussianMixture as GMM
 from sklearn import preprocessing as preprocessing
-import sys
-from tqdm import tqdm
 
 ######################### Get data and noise adding ##########################
+
+
 def get_data_cifar(loader):
-    data = loader.sampler.data_source.train_data.copy()
-    labels = loader.sampler.data_source.train_labels
-    labels = torch.Tensor(labels[:]).long() # this is to copy the list
+    data = loader.sampler.data_source.data.copy()
+    labels = loader.sampler.data_source.targets
+    labels = torch.Tensor(labels[:]).long()  # this is to copy the list
     return (data, labels)
 
+
 def get_data_cifar_2(loader):
-    labels = loader.sampler.data_source.train_labels
-    labels = torch.Tensor(labels[:]).long() # this is to copy the list
+    labels = loader.sampler.data_source.targets
+    labels = torch.Tensor(labels[:]).long()  # this is to copy the list
     return labels
 
-#Noise without the sample class
-def add_noise_cifar_wo(loader, noise_percentage = 20):
+# Noise without the sample class
+
+
+def add_noise_cifar_wo(loader, noise_percentage=20):
     torch.manual_seed(2)
     np.random.seed(42)
-    noisy_labels = [sample_i for sample_i in loader.sampler.data_source.train_labels]
-    images = [sample_i for sample_i in loader.sampler.data_source.train_data]
+    noisy_labels = [
+        sample_i for sample_i in loader.sampler.data_source.targets]
+    images = [sample_i for sample_i in loader.sampler.data_source.data]
     probs_to_change = torch.randint(100, (len(noisy_labels),))
     idx_to_change = probs_to_change >= (100.0 - noise_percentage)
-    percentage_of_bad_labels = 100 * (torch.sum(idx_to_change).item() / float(len(noisy_labels)))
+    percentage_of_bad_labels = 100 * \
+        (torch.sum(idx_to_change).item() / float(len(noisy_labels)))
 
     for n, label_i in enumerate(noisy_labels):
         if idx_to_change[n] == 1:
@@ -44,29 +49,34 @@ def add_noise_cifar_wo(loader, noise_percentage = 20):
             set_index = np.random.randint(len(set_labels))
             noisy_labels[n] = set_labels[set_index]
 
-    loader.sampler.data_source.train_data = images
-    loader.sampler.data_source.train_labels = noisy_labels
+    loader.sampler.data_source.data = images
+    loader.sampler.data_source.targets = noisy_labels
 
     return noisy_labels
 
-#Noise with the sample class (as in Re-thinking generalization )
-def add_noise_cifar_w(loader, noise_percentage = 20):
+# Noise with the sample class (as in Re-thinking generalization )
+
+
+def add_noise_cifar_w(loader, noise_percentage=20):
     torch.manual_seed(2)
     np.random.seed(42)
-    noisy_labels = [sample_i for sample_i in loader.sampler.data_source.train_labels]
-    images = [sample_i for sample_i in loader.sampler.data_source.train_data]
+    noisy_labels = [
+        sample_i for sample_i in loader.sampler.data_source.targets]
+    images = [sample_i for sample_i in loader.sampler.data_source.data]
     probs_to_change = torch.randint(100, (len(noisy_labels),))
     idx_to_change = probs_to_change >= (100.0 - noise_percentage)
-    percentage_of_bad_labels = 100 * (torch.sum(idx_to_change).item() / float(len(noisy_labels)))
+    percentage_of_bad_labels = 100 * \
+        (torch.sum(idx_to_change).item() / float(len(noisy_labels)))
 
     for n, label_i in enumerate(noisy_labels):
         if idx_to_change[n] == 1:
-            set_labels = list(set(range(10)))  # this is a set with the available labels (with the current label)
+            # this is a set with the available labels (with the current label)
+            set_labels = list(set(range(10)))
             set_index = np.random.randint(len(set_labels))
             noisy_labels[n] = set_labels[set_index]
 
-    loader.sampler.data_source.train_data = images
-    loader.sampler.data_source.train_labels = noisy_labels
+    loader.sampler.data_source.data = images
+    loader.sampler.data_source.targets = noisy_labels
 
     return noisy_labels
 
@@ -89,14 +99,15 @@ def track_training_loss(args, model, device, train_loader, epoch, bmm_model1, bm
         prediction = model(data)
 
         prediction = F.log_softmax(prediction, dim=1)
-        idx_loss = F.nll_loss(prediction, target, reduction = 'none')
+        idx_loss = F.nll_loss(prediction, target, reduction='none')
         idx_loss.detach_()
         all_losses = torch.cat((all_losses, idx_loss.cpu()))
         probs = prediction.clone()
         probs.detach_()
         all_probs = torch.cat((all_probs, probs.cpu()))
         arg_entr = torch.max(prediction, dim=1)[1]
-        arg_entr = F.nll_loss(prediction.float(), arg_entr.to(device), reduction='none')
+        arg_entr = F.nll_loss(prediction.float(),
+                              arg_entr.to(device), reduction='none')
         arg_entr.detach_()
         all_argmaxXentropy = torch.cat((all_argmaxXentropy, arg_entr.cpu()))
 
@@ -105,15 +116,16 @@ def track_training_loss(args, model, device, train_loader, epoch, bmm_model1, bm
     # outliers detection
     max_perc = np.percentile(loss_tr, 95)
     min_perc = np.percentile(loss_tr, 5)
-    loss_tr = loss_tr[(loss_tr<=max_perc) & (loss_tr>=min_perc)]
+    loss_tr = loss_tr[(loss_tr <= max_perc) & (loss_tr >= min_perc)]
 
     bmm_model_maxLoss = torch.FloatTensor([max_perc]).to(device)
     bmm_model_minLoss = torch.FloatTensor([min_perc]).to(device) + 10e-6
 
+    loss_tr = (loss_tr - bmm_model_minLoss.data.cpu().numpy()) / \
+        (bmm_model_maxLoss.data.cpu().numpy() -
+         bmm_model_minLoss.data.cpu().numpy() + 1e-6)
 
-    loss_tr = (loss_tr - bmm_model_minLoss.data.cpu().numpy()) / (bmm_model_maxLoss.data.cpu().numpy() - bmm_model_minLoss.data.cpu().numpy() + 1e-6)
-
-    loss_tr[loss_tr>=1] = 1-10e-4
+    loss_tr[loss_tr >= 1] = 1-10e-4
     loss_tr[loss_tr <= 0] = 10e-4
 
     bmm_model = BetaMixture1D(max_iters=10)
@@ -122,12 +134,14 @@ def track_training_loss(args, model, device, train_loader, epoch, bmm_model1, bm
     bmm_model.create_lookup(1)
 
     return all_losses.data.numpy(), \
-           all_probs.data.numpy(), \
-           all_argmaxXentropy.numpy(), \
-           bmm_model, bmm_model_maxLoss, bmm_model_minLoss
+        all_probs.data.numpy(), \
+        all_argmaxXentropy.numpy(), \
+        bmm_model, bmm_model_maxLoss, bmm_model_minLoss
 ##############################################################################
 
 ########################### Cross-entropy loss ###############################
+
+
 def train_CrossEntropy(args, model, device, train_loader, optimizer, epoch):
     model.train()
     loss_per_batch = []
@@ -148,15 +162,17 @@ def train_CrossEntropy(args, model, device, train_loader, optimizer, epoch):
         loss_per_batch.append(loss.item())
 
         # save accuracy:
-        pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+        # get the index of the max log-probability
+        pred = output.max(1, keepdim=True)[1]
         correct += pred.eq(target.view_as(pred)).sum().item()
-        acc_train_per_batch.append(100. * correct / ((batch_idx+1)*args.batch_size))
+        acc_train_per_batch.append(
+            100. * correct / ((batch_idx+1)*args.batch_size))
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}, Accuracy: {:.0f}%, Learning rate: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item(),
-                       100. * correct / ((batch_idx + 1) * args.batch_size),
+                100. * batch_idx / len(train_loader), loss.item(),
+                100. * correct / ((batch_idx + 1) * args.batch_size),
                 optimizer.param_groups[0]['lr']))
 
     loss_per_epoch = [np.average(loss_per_batch)]
@@ -166,6 +182,8 @@ def train_CrossEntropy(args, model, device, train_loader, optimizer, epoch):
 ##############################################################################
 
 ############################# Mixup original #################################
+
+
 def mixup_data(x, y, alpha=1.0, device='cuda'):
     '''Returns mixed inputs, pairs of targets, and lambda'''
     if alpha > 0:
@@ -174,7 +192,7 @@ def mixup_data(x, y, alpha=1.0, device='cuda'):
         lam = 1
 
     batch_size = x.size()[0]
-    if device=='cuda':
+    if device == 'cuda':
         index = torch.randperm(batch_size).cuda()
     else:
         index = torch.randperm(batch_size)
@@ -188,6 +206,7 @@ def mixup_criterion(pred, y_a, y_b, lam):
 
     return lam * F.nll_loss(pred, y_a) + (1 - lam) * F.nll_loss(pred, y_b)
 
+
 def train_mixUp(args, model, device, train_loader, optimizer, epoch, alpha):
     model.train()
     loss_per_batch = []
@@ -198,7 +217,8 @@ def train_mixUp(args, model, device, train_loader, optimizer, epoch, alpha):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
 
-        inputs, targets_a, targets_b, lam = mixup_data(data, target, alpha, device)
+        inputs, targets_a, targets_b, lam = mixup_data(
+            data, target, alpha, device)
 
         output = model(inputs)
         output = F.log_softmax(output, dim=1)
@@ -210,15 +230,17 @@ def train_mixUp(args, model, device, train_loader, optimizer, epoch, alpha):
         loss_per_batch.append(loss.item())
 
         # save accuracy:
-        pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+        # get the index of the max log-probability
+        pred = output.max(1, keepdim=True)[1]
         correct += pred.eq(target.view_as(pred)).sum().item()
-        acc_train_per_batch.append(100. * correct / ((batch_idx+1)*args.batch_size))
+        acc_train_per_batch.append(
+            100. * correct / ((batch_idx+1)*args.batch_size))
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}, Accuracy: {:.0f}%, Learning rate: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item(),
-                       100. * correct / ((batch_idx + 1) * args.batch_size),
+                100. * batch_idx / len(train_loader), loss.item(),
+                100. * correct / ((batch_idx + 1) * args.batch_size),
                 optimizer.param_groups[0]['lr']))
 
     loss_per_epoch = [np.average(loss_per_batch)]
@@ -229,11 +251,14 @@ def train_mixUp(args, model, device, train_loader, optimizer, epoch, alpha):
 
 ########################## Mixup + Dynamic Hard Bootstrapping ##################################
 # Mixup with hard bootstrapping using the beta model
-def reg_loss_class(mean_tab,num_classes=10):
+
+
+def reg_loss_class(mean_tab, num_classes=10):
     loss = 0
     for items in mean_tab:
         loss += (1./num_classes)*torch.log((1./num_classes)/items)
     return loss
+
 
 def mixup_data_Boot(x, y, alpha=1.0, device='cuda'):
     '''Returns mixed inputs, pairs of targets, and lambda'''
@@ -243,7 +268,7 @@ def mixup_data_Boot(x, y, alpha=1.0, device='cuda'):
         lam = 1
 
     batch_size = x.size()[0]
-    if device=='cuda':
+    if device == 'cuda':
         index = torch.randperm(batch_size).to(device)
     else:
         index = torch.randperm(batch_size)
@@ -252,8 +277,9 @@ def mixup_data_Boot(x, y, alpha=1.0, device='cuda'):
     y_a, y_b = y, y[index]
     return mixed_x, y_a, y_b, lam, index
 
-def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model, \
-                            bmm_model_maxLoss, bmm_model_minLoss, reg_term, num_classes):
+
+def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model,
+                             bmm_model_maxLoss, bmm_model_minLoss, reg_term, num_classes):
     model.train()
     loss_per_batch = []
 
@@ -268,13 +294,15 @@ def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch
         output_x1.detach_()
         optimizer.zero_grad()
 
-        inputs_mixed, targets_1, targets_2, lam, index = mixup_data_Boot(data, target, alpha, device)
+        inputs_mixed, targets_1, targets_2, lam, index = mixup_data_Boot(
+            data, target, alpha, device)
         output = model(inputs_mixed)
         output_mean = F.softmax(output, dim=1)
-        tab_mean_class = torch.mean(output_mean,-2)
+        tab_mean_class = torch.mean(output_mean, -2)
         output = F.log_softmax(output, dim=1)
 
-        B = compute_probabilities_batch(data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
+        B = compute_probabilities_batch(
+            data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
         B = B.to(device)
         B[B <= 1e-4] = 1e-4
         B[B >= 1 - 1e-4] = 1 - 1e-4
@@ -289,14 +317,12 @@ def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch
         loss_x1_vec = (1 - B) * F.nll_loss(output, targets_1, reduction='none')
         loss_x1 = torch.sum(loss_x1_vec) / len(loss_x1_vec)
 
-
         loss_x1_pred_vec = B * F.nll_loss(output, z1, reduction='none')
         loss_x1_pred = torch.sum(loss_x1_pred_vec) / len(loss_x1_pred_vec)
 
-
-        loss_x2_vec = (1 - B2) * F.nll_loss(output, targets_2, reduction='none')
+        loss_x2_vec = (1 - B2) * F.nll_loss(output,
+                                            targets_2, reduction='none')
         loss_x2 = torch.sum(loss_x2_vec) / len(loss_x2_vec)
-
 
         loss_x2_pred_vec = B2 * F.nll_loss(output, z2, reduction='none')
         loss_x2_pred = torch.sum(loss_x2_pred_vec) / len(loss_x2_pred_vec)
@@ -314,15 +340,17 @@ def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch
         ########################################################################
 
         # save accuracy:
-        pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+        # get the index of the max log-probability
+        pred = output.max(1, keepdim=True)[1]
         correct += pred.eq(target.view_as(pred)).sum().item()
-        acc_train_per_batch.append(100. * correct / ((batch_idx+1)*args.batch_size))
+        acc_train_per_batch.append(
+            100. * correct / ((batch_idx+1)*args.batch_size))
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}, Accuracy: {:.0f}%, Learning rate: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item(),
-                       100. * correct / ((batch_idx + 1) * args.batch_size),
+                100. * batch_idx / len(train_loader), loss.item(),
+                100. * correct / ((batch_idx + 1) * args.batch_size),
                 optimizer.param_groups[0]['lr']))
 
     loss_per_epoch = [np.average(loss_per_batch)]
@@ -339,13 +367,13 @@ def mixup_criterion_mixSoft(pred, y_a, y_b, B, lam, index, output_x1, output_x2)
     return torch.sum(
         (lam) * (
                 (1 - B) * F.nll_loss(pred, y_a, reduction='none') + B * (-torch.sum(F.softmax(output_x1, dim=1) * pred, dim=1))) +
-                (1-lam) * (
-                (1 - B[index]) * F.nll_loss(pred, y_b, reduction='none') + B[index] * (-torch.sum(F.softmax(output_x2, dim=1) * pred, dim=1)))) / len(
+        (1-lam) * (
+            (1 - B[index]) * F.nll_loss(pred, y_b, reduction='none') + B[index] * (-torch.sum(F.softmax(output_x2, dim=1) * pred, dim=1)))) / len(
         pred)
 
 
-def train_mixUp_SoftBootBeta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model, bmm_model_maxLoss, \
-                                            bmm_model_minLoss, reg_term, num_classes):
+def train_mixUp_SoftBootBeta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model, bmm_model_maxLoss,
+                             bmm_model_minLoss, reg_term, num_classes):
     model.train()
     loss_per_batch = []
 
@@ -364,26 +392,27 @@ def train_mixUp_SoftBootBeta(args, model, device, train_loader, optimizer, epoch
         if epoch == 1:
             B = 0.5*torch.ones(len(target)).float().to(device)
         else:
-            B = compute_probabilities_batch(data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
+            B = compute_probabilities_batch(
+                data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
             B = B.to(device)
             B[B <= 1e-4] = 1e-4
             B[B >= 1-1e-4] = 1-1e-4
 
-        inputs_mixed, targets_1, targets_2, lam, index = mixup_data_Boot(data, target, alpha, device)
+        inputs_mixed, targets_1, targets_2, lam, index = mixup_data_Boot(
+            data, target, alpha, device)
         output = model(inputs_mixed)
         output_mean = F.softmax(output, dim=1)
         output = F.log_softmax(output, dim=1)
 
         output_x2 = output_x1[index, :]
 
-        tab_mean_class = torch.mean(output_mean, -2)#Columns mean
+        tab_mean_class = torch.mean(output_mean, -2)  # Columns mean
 
         loss = mixup_criterion_mixSoft(output, targets_1, targets_2, B, lam, index, output_x1,
-                                                             output_x2)
+                                       output_x2)
         loss_reg = reg_loss_class(tab_mean_class)
         loss = loss + reg_term*loss_reg
         loss.backward()
-
 
         optimizer.step()
         ################## monitor losses  ####################################
@@ -391,15 +420,17 @@ def train_mixUp_SoftBootBeta(args, model, device, train_loader, optimizer, epoch
         ########################################################################
 
         # save accuracy:
-        pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+        # get the index of the max log-probability
+        pred = output.max(1, keepdim=True)[1]
         correct += pred.eq(target.view_as(pred)).sum().item()
-        acc_train_per_batch.append(100. * correct / ((batch_idx+1)*args.batch_size))
+        acc_train_per_batch.append(
+            100. * correct / ((batch_idx+1)*args.batch_size))
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}, Accuracy: {:.0f}%, Learning rate: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item(),
-                       100. * correct / ((batch_idx + 1) * args.batch_size),
+                100. * batch_idx / len(train_loader), loss.item(),
+                100. * correct / ((batch_idx + 1) * args.batch_size),
                 optimizer.param_groups[0]['lr']))
 
     loss_per_epoch = [np.average(loss_per_batch)]
@@ -417,22 +448,25 @@ def mixup_data_beta(x, y, B, device='cuda'):
     '''Returns mixed inputs, pairs of targets, and lambda'''
 
     batch_size = x.size()[0]
-    if device=='cuda':
+    if device == 'cuda':
         index = torch.randperm(batch_size).cuda()
     else:
         index = torch.randperm(batch_size)
 
     lam = ((1 - B) + (1 - B[index]))
-    mixed_x = ((1-B)/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x + ((1-B[index])/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x[index, :]
+    mixed_x = ((1-B)/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x + \
+        ((1-B[index])/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x[index, :]
     y_a, y_b = y, y[index]
     return mixed_x, y_a, y_b, index
+
 
 def mixup_criterion_beta(pred, y_a, y_b):
     lam = np.random.beta(32, 32)
     return lam * F.nll_loss(pred, y_a) + (1-lam) * F.nll_loss(pred, y_b)
 
+
 def train_mixUp_Beta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model,
-                                bmm_model_maxLoss, bmm_model_minLoss):
+                     bmm_model_maxLoss, bmm_model_minLoss):
     model.train()
     loss_per_batch = []
 
@@ -447,12 +481,14 @@ def train_mixUp_Beta(args, model, device, train_loader, optimizer, epoch, alpha,
         if epoch == 1:
             B = 0.5 * torch.ones(len(target)).float().to(device)
         else:
-            B = compute_probabilities_batch(data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
+            B = compute_probabilities_batch(
+                data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
             B = B.to(device)
             B[B <= 1e-4] = 1e-4
             B[B >= 1 - 1e-4] = 1 - 1e-4
 
-        inputs_mixed, targets_1, targets_2, index = mixup_data_beta(data, target, B, device)
+        inputs_mixed, targets_1, targets_2, index = mixup_data_beta(
+            data, target, B, device)
         output = model(inputs_mixed)
         output = F.log_softmax(output, dim=1)
 
@@ -466,15 +502,17 @@ def train_mixUp_Beta(args, model, device, train_loader, optimizer, epoch, alpha,
         ########################################################################
 
         # save accuracy:
-        pred = output.max(1, keepdim=True)[1]  # get the index of the max log-probability
+        # get the index of the max log-probability
+        pred = output.max(1, keepdim=True)[1]
         correct += pred.eq(target.view_as(pred)).sum().item()
-        acc_train_per_batch.append(100. * correct / ((batch_idx + 1) * args.batch_size))
+        acc_train_per_batch.append(
+            100. * correct / ((batch_idx + 1) * args.batch_size))
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}, Accuracy: {:.0f}%, Learning rate: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item(),
-                       100. * correct / ((batch_idx + 1) * args.batch_size),
+                100. * batch_idx / len(train_loader), loss.item(),
+                100. * correct / ((batch_idx + 1) * args.batch_size),
                 optimizer.param_groups[0]['lr']))
 
     loss_per_epoch = [np.average(loss_per_batch)]
@@ -489,18 +527,20 @@ def mixup_criterion_SoftHard(pred, y_a, y_b, B, index, output_x1, output_x2, Tem
     return torch.sum(
         (0.5) * (
                 (1 - B) * F.nll_loss(pred, y_a, reduction='none') + B * (-torch.sum(F.softmax(output_x1/Temp, dim=1) * pred, dim=1))) +
-                (0.5) * (
+        (0.5) * (
                 (1 - B[index]) * F.nll_loss(pred, y_b, reduction='none') + B[index] * (-torch.sum(F.softmax(output_x2/Temp, dim=1) * pred, dim=1)))) / len(
         pred)
 
-def train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer, epoch, bmm_model, \
-                                    bmm_model_maxLoss, bmm_model_minLoss, countTemp, k, temp_length, reg_term, num_classes):
+
+def train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer, epoch, bmm_model,
+                                   bmm_model_maxLoss, bmm_model_minLoss, countTemp, k, temp_length, reg_term, num_classes):
     model.train()
     loss_per_batch = []
 
     acc_train_per_batch = []
     correct = 0
-    steps_every_n = 2 # 2 means that every epoch we change the value of k (index)
+    # 2 means that every epoch we change the value of k (index)
+    steps_every_n = 2
     temp_vec = np.linspace(1, 0.001, temp_length)
 
     for batch_idx, (data, target) in enumerate(train_loader):
@@ -515,25 +555,27 @@ def train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer,
         if epoch == 1:
             B = 0.5*torch.ones(len(target)).float().to(device)
         else:
-            B = compute_probabilities_batch(data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
+            B = compute_probabilities_batch(
+                data, target, model, bmm_model, bmm_model_maxLoss, bmm_model_minLoss)
             B = B.to(device)
             B[B <= 1e-4] = 1e-4
             B[B >= 1-1e-4] = 1-1e-4
 
-        inputs_mixed, targets_1, targets_2, index = mixup_data_beta(data, target, B, device)
+        inputs_mixed, targets_1, targets_2, index = mixup_data_beta(
+            data, target, B, device)
         output = model(inputs_mixed)
         output_mean = F.softmax(output, dim=1)
         output = F.log_softmax(output, dim=1)
 
         output_x2 = output_x1[index, :]
-        tab_mean_class = torch.mean(output_mean,-2)
+        tab_mean_class = torch.mean(output_mean, -2)
 
         Temp = temp_vec[k]
 
-        loss = mixup_criterion_SoftHard(output, targets_1, targets_2, B, index, output_x1, output_x2, Temp)
+        loss = mixup_criterion_SoftHard(
+            output, targets_1, targets_2, B, index, output_x1, output_x2, Temp)
         loss_reg = reg_loss_class(tab_mean_class, num_classes)
         loss = loss + reg_term*loss_reg
-
 
         loss.backward()
 
@@ -543,15 +585,17 @@ def train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer,
         ########################################################################
 
         # save accuracy:
-        pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+        # get the index of the max log-probability
+        pred = output.max(1, keepdim=True)[1]
         correct += pred.eq(target.view_as(pred)).sum().item()
-        acc_train_per_batch.append(100. * correct / ((batch_idx+1)*args.batch_size))
+        acc_train_per_batch.append(
+            100. * correct / ((batch_idx+1)*args.batch_size))
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}, Accuracy: {:.0f}%, Learning rate: {:.6f}, Temperature: {:.4f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item(),
-                       100. * correct / ((batch_idx + 1) * args.batch_size),
+                100. * batch_idx / len(train_loader), loss.item(),
+                100. * correct / ((batch_idx + 1) * args.batch_size),
                 optimizer.param_groups[0]['lr'], Temp))
 
     loss_per_epoch = [np.average(loss_per_batch)]
@@ -572,16 +616,18 @@ def compute_probabilities_batch(data, target, cnn_model, bmm_model, bmm_model_ma
     cnn_model.eval()
     outputs = cnn_model(data)
     outputs = F.log_softmax(outputs, dim=1)
-    batch_losses = F.nll_loss(outputs.float(), target, reduction = 'none')
+    batch_losses = F.nll_loss(outputs.float(), target, reduction='none')
     batch_losses.detach_()
     outputs.detach_()
     cnn_model.train()
-    batch_losses = (batch_losses - bmm_model_minLoss) / (bmm_model_maxLoss - bmm_model_minLoss + 1e-6)
+    batch_losses = (batch_losses - bmm_model_minLoss) / \
+        (bmm_model_maxLoss - bmm_model_minLoss + 1e-6)
     batch_losses[batch_losses >= 1] = 1-10e-4
     batch_losses[batch_losses <= 0] = 10e-4
 
     #B = bmm_model.posterior(batch_losses,1)
-    B = bmm_model.look_lookup(batch_losses, bmm_model_maxLoss, bmm_model_minLoss)
+    B = bmm_model.look_lookup(
+        batch_losses, bmm_model_maxLoss, bmm_model_minLoss)
 
     return torch.FloatTensor(B)
 
@@ -589,7 +635,7 @@ def compute_probabilities_batch(data, target, cnn_model, bmm_model, bmm_model_ma
 def test_cleaning(args, model, device, test_loader):
     model.eval()
     loss_per_batch = []
-    acc_val_per_batch =[]
+    acc_val_per_batch = []
     test_loss = 0
     correct = 0
     with torch.no_grad():
@@ -599,9 +645,11 @@ def test_cleaning(args, model, device, test_loader):
             output = F.log_softmax(output, dim=1)
             test_loss += F.nll_loss(output, target, reduction='sum').item()
             loss_per_batch.append(F.nll_loss(output, target).item())
-            pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+            # get the index of the max log-probability
+            pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
-            acc_val_per_batch.append(100. * correct / ((batch_idx+1)*args.test_batch_size))
+            acc_val_per_batch.append(
+                100. * correct / ((batch_idx+1)*args.test_batch_size))
 
     test_loss /= len(test_loader.dataset)
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
@@ -621,7 +669,8 @@ def compute_loss_set(args, model, device, data_loader):
     for batch_idx, (data, target) in enumerate(data_loader):
         prediction = model(data.to(device))
         prediction = F.log_softmax(prediction, dim=1)
-        idx_loss = F.nll_loss(prediction.float(), target.to(device), reduction = 'none')
+        idx_loss = F.nll_loss(prediction.float(),
+                              target.to(device), reduction='none')
         idx_loss.detach_()
         all_losses = torch.cat((all_losses, idx_loss.cpu()))
     return all_losses.data.numpy()
@@ -630,7 +679,7 @@ def compute_loss_set(args, model, device, data_loader):
 def val_cleaning(args, model, device, val_loader):
     model.eval()
     loss_per_batch = []
-    acc_val_per_batch =[]
+    acc_val_per_batch = []
     val_loss = 0
     correct = 0
     with torch.no_grad():
@@ -640,9 +689,11 @@ def val_cleaning(args, model, device, val_loader):
             output = F.log_softmax(output, dim=1)
             val_loss += F.nll_loss(output, target, reduction='sum').item()
             loss_per_batch.append(F.nll_loss(output, target).item())
-            pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
+            # get the index of the max log-probability
+            pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
-            acc_val_per_batch.append(100. * correct / ((batch_idx+1)*args.val_batch_size))
+            acc_val_per_batch.append(
+                100. * correct / ((batch_idx+1)*args.val_batch_size))
 
     val_loss /= len(val_loader.dataset)
     print('\nValidation set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
@@ -659,11 +710,12 @@ def val_cleaning(args, model, device, val_loader):
 def weighted_mean(x, w):
     return np.sum(w * x) / np.sum(w)
 
+
 def fit_beta_weighted(x, w):
     x_bar = weighted_mean(x, w)
     s2 = weighted_mean((x - x_bar)**2, w)
     alpha = x_bar * ((x_bar * (1 - x_bar)) / s2 - 1)
-    beta = alpha * (1 - x_bar) /x_bar
+    beta = alpha * (1 - x_bar) / x_bar
     return alpha, beta
 
 
@@ -694,7 +746,7 @@ class BetaMixture1D(object):
         return self.weighted_likelihood(x, y) / (self.probability(x) + self.eps_nan)
 
     def responsibilities(self, x):
-        r =  np.array([self.weighted_likelihood(x, i) for i in range(2)])
+        r = np.array([self.weighted_likelihood(x, i) for i in range(2)])
         # there are ~200 samples below that value
         r[r <= self.eps_nan] = self.eps_nan
         r /= r.sum(axis=0)
@@ -728,11 +780,12 @@ class BetaMixture1D(object):
         return self.posterior(x, 1) > 0.5
 
     def create_lookup(self, y):
-        x_l = np.linspace(0+self.eps_nan, 1-self.eps_nan, self.lookup_resolution)
+        x_l = np.linspace(0+self.eps_nan, 1-self.eps_nan,
+                          self.lookup_resolution)
         lookup_t = self.posterior(x_l, y)
         lookup_t[np.argmax(lookup_t):] = lookup_t.max()
         self.lookup = lookup_t
-        self.lookup_loss = x_l # I do not use this one at the end
+        self.lookup_loss = x_l  # I do not use this one at the end
 
     def look_lookup(self, x, loss_max, loss_min):
         x_i = x.clone().cpu().numpy()
