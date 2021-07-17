@@ -56,9 +56,10 @@ def main():
                         help='alpha parameter for the mixup distribution, default: 32')
     parser.add_argument('--M', nargs='+', type=int, default=[100, 250],
                         help="Milestones for the LR sheduler, default 100 250")
-    parser.add_argument('--Mixup', type=str, default='None', choices=['None', 'Static', 'Dynamic'],
+    parser.add_argument('--Mixup', type=str, default='None', choices=['None', 'Static', 'Hidden', 'Dynamic'],
                         help="Type of bootstrapping. Available: 'None' (deactivated)(default), \
-                                'Static' (as in the paper), 'Dynamic' (BMM to mix the smaples, will use decreasing softmax), default: None")
+                                'Static' (as in the paper), 'Hidden' (adapted for hidden states from Static) \
+                                'Dynamic' (BMM to mix the smaples, will use decreasing softmax), default: None")
     parser.add_argument('--BootBeta', type=str, default='Hard', choices=['None', 'Hard', 'Soft'],
                         help="Type of Bootstrapping guided with the BMM. Available: \
                         'None' (deactivated)(default), 'Hard' (Hard bootstrapping), 'Soft' (Soft bootstrapping), default: Hard")
@@ -194,6 +195,21 @@ def main():
                         bootstrap_ep_mixup))
                     loss_per_epoch, acc_train_per_epoch_i = train_mixUp_SoftBootBeta(args, model, device, train_loader, optimizer, epoch,
                                                                                      alpha, bmm_model, bmm_model_maxLoss, bmm_model_minLoss, args.reg_term, num_classes)
+
+        ### Hidden State Mixup ###
+        if args.Mixup == "Hidden":
+            alpha = args.alpha
+            if epoch < bootstrap_ep_mixup:
+                print('\t##### Doing HIDDEN mixup for {0} epochs #####'.format(
+                    bootstrap_ep_mixup - 1))
+                loss_per_epoch, acc_train_per_epoch_i = train_mixUp(
+                    args, model, device, train_loader, optimizer, epoch, 32, hidden_mixup=True)
+
+            else:
+                print("\t##### Doing HARD BETA bootstrapping and HIDDEN mixup from the epoch {0} #####".format(
+                    bootstrap_ep_mixup))
+                loss_per_epoch, acc_train_per_epoch_i = train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch,
+                                                                                 alpha, bmm_model, bmm_model_maxLoss, bmm_model_minLoss, args.reg_term, num_classes, hidden_mixup=True)
 
         ## Dynamic Mixup ##
         # to achieve convergence even under extreme label noise (~90)

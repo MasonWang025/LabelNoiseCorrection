@@ -146,25 +146,56 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    def forward(self, x, lin=0, lout=5):
+    def forward(self, x, target=None, mixup_hidden=False, mixup_alpha=None):
+        if mixup_hidden:
+            layer_mix = random.randint(0, 2)
+        else:
+            layer_mix = None
+
         out = x
-        if lin < 1 and lout > -1:
-            out = self.conv1(out)
-            out = self.bn1(out)
-            out = F.relu(out)
-        if lin < 2 and lout > 0:
-            out = self.layer1(out)
-        if lin < 3 and lout > 1:
-            out = self.layer2(out)
-        if lin < 4 and lout > 2:
-            out = self.layer3(out)
-        if lin < 5 and lout > 3:
-            out = self.layer4(out)
-        if lout > 4:
-            out = F.avg_pool2d(out, 4)
-            out = out.view(out.size(0), -1)
-            out = self.linear(out)
-        return out
+
+        if mixup_alpha is not None:
+            lam = get_lambda(mixup_alpha)
+            lam = torch.from_numpy(np.array([lam]).astype('float32')).cuda()
+            lam = Variable(lam)
+
+        if target is not None:
+            target_reweighted = to_one_hot(target, self.num_classes)
+
+        if layer_mix == 0:
+            out, target_reweighted = mixup_process(
+                out, target_reweighted, lam=lam)
+
+        out = self.conv1(out)
+        out = self.bn1(out)
+        out = F.relu(out)
+        
+        out = self.layer1(out)
+
+        if layer_mix == 1:
+            out, target_reweighted = mixup_process(
+                out, target_reweighted, lam=lam)
+
+        out = self.layer2(out)
+
+        if layer_mix == 2:
+            out, target_reweighted = mixup_process(
+                out, target_reweighted, lam=lam)
+
+        out = self.layer3(out)
+        if layer_mix == 3:
+            out, target_reweighted = mixup_process(
+                out, target_reweighted, lam=lam)
+
+        out = self.layer4(out)
+        out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+
+        if target is not None:
+            return out, target_reweighted
+        else:
+            return out
 
 
 def ResNet18(num_classes=10):

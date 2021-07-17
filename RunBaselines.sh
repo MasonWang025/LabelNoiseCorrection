@@ -6,7 +6,7 @@
 # for noise levels 0, 20, 50, 80 (CIFAR-10)
 # reproducing M-DYR-H row in Table 2
 
-tensorboard --logdir=runs &
+# tensorboard --logdir=runs &
 
 for i in 0 20 50 80
 do

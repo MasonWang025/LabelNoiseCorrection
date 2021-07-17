@@ -207,7 +207,7 @@ def mixup_criterion(pred, y_a, y_b, lam):
     return lam * F.nll_loss(pred, y_a) + (1 - lam) * F.nll_loss(pred, y_b)
 
 
-def train_mixUp(args, model, device, train_loader, optimizer, epoch, alpha):
+def train_mixUp(args, model, device, train_loader, optimizer, epoch, alpha, *, hidden_mixup=False):
     model.train()
     loss_per_batch = []
 
@@ -279,7 +279,7 @@ def mixup_data_Boot(x, y, alpha=1.0, device='cuda'):
 
 
 def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model,
-                             bmm_model_maxLoss, bmm_model_minLoss, reg_term, num_classes):
+                             bmm_model_maxLoss, bmm_model_minLoss, reg_term, num_classes, *, hidden_mixup=False):
     model.train()
     loss_per_batch = []
 
