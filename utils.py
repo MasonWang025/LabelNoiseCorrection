@@ -186,6 +186,9 @@ def train_CrossEntropy(args, model, device, train_loader, optimizer, epoch):
 
 def mixup_data(x, y, alpha=1.0, device='cuda'):
     '''Returns mixed inputs, pairs of targets, and lambda'''
+    # this method was originally named mixup_data_Boot
+    # same as original mixup_data except also return index
+
     if alpha > 0:
         lam = np.random.beta(alpha, alpha)
     else:
@@ -193,13 +196,13 @@ def mixup_data(x, y, alpha=1.0, device='cuda'):
 
     batch_size = x.size()[0]
     if device == 'cuda':
-        index = torch.randperm(batch_size).cuda()
+        index = torch.randperm(batch_size).to(device)
     else:
         index = torch.randperm(batch_size)
 
     mixed_x = lam * x + (1 - lam) * x[index, :]
     y_a, y_b = y, y[index]
-    return mixed_x, y_a, y_b, lam
+    return mixed_x, y_a, y_b, lam, index
 
 
 def mixup_criterion(pred, y_a, y_b, lam):
@@ -217,10 +220,17 @@ def train_mixUp(args, model, device, train_loader, optimizer, epoch, alpha, *, h
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
 
-        inputs, targets_a, targets_b, lam = mixup_data(
-            data, target, alpha, device)
+        # inputs, targets_a, targets_b, lam = mixup_data(
+        #     data, target, alpha, device)
+        # output = model(inputs)
 
-        output = model(inputs)
+        if hidden_mixup == True:
+            output, targets_a, targets_b, lam, _ = model(
+                data, target=target, mixup_hidden=True, mixup_alpha=alpha, mixup_data=mixup_data, device=device)
+        else:
+            output, targets_a, targets_b, lam, _ = model(
+                data, target=target, mixup=True, mixup_alpha=alpha, mixup_data=mixup_data, device=device)
+
         output = F.log_softmax(output, dim=1)
         loss = mixup_criterion(output, targets_a, targets_b, lam)
 
@@ -260,24 +270,6 @@ def reg_loss_class(mean_tab, num_classes=10):
     return loss
 
 
-def mixup_data_Boot(x, y, alpha=1.0, device='cuda'):
-    '''Returns mixed inputs, pairs of targets, and lambda'''
-    if alpha > 0:
-        lam = np.random.beta(alpha, alpha)
-    else:
-        lam = 1
-
-    batch_size = x.size()[0]
-    if device == 'cuda':
-        index = torch.randperm(batch_size).to(device)
-    else:
-        index = torch.randperm(batch_size)
-
-    mixed_x = lam * x + (1 - lam) * x[index, :]
-    y_a, y_b = y, y[index]
-    return mixed_x, y_a, y_b, lam, index
-
-
 def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model,
                              bmm_model_maxLoss, bmm_model_minLoss, reg_term, num_classes, *, hidden_mixup=False):
     model.train()
@@ -294,9 +286,17 @@ def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch
         output_x1.detach_()
         optimizer.zero_grad()
 
-        inputs_mixed, targets_1, targets_2, lam, index = mixup_data_Boot(
-            data, target, alpha, device)
-        output = model(inputs_mixed)
+        # inputs_mixed, targets_1, targets_2, lam, index = mixup_data_Boot(
+        #     data, target, alpha, device)
+        # output = model(inputs_mixed)
+
+        if hidden_mixup == True:
+            output, targets_1, targets_2, lam, index = model(
+                data, target=target, mixup_hidden=True, mixup_alpha=alpha, mixup_data=mixup_data, device=device)
+        else:
+            output, targets_1, targets_2, lam, index = model(
+                data, target=target, mixup=True, mixup_alpha=alpha, mixup_data=mixup_data, device=device)
+
         output_mean = F.softmax(output, dim=1)
         tab_mean_class = torch.mean(output_mean, -2)
         output = F.log_softmax(output, dim=1)
@@ -398,7 +398,7 @@ def train_mixUp_SoftBootBeta(args, model, device, train_loader, optimizer, epoch
             B[B <= 1e-4] = 1e-4
             B[B >= 1-1e-4] = 1-1e-4
 
-        inputs_mixed, targets_1, targets_2, lam, index = mixup_data_Boot(
+        inputs_mixed, targets_1, targets_2, lam, index = mixup_data(
             data, target, alpha, device)
         output = model(inputs_mixed)
         output_mean = F.softmax(output, dim=1)

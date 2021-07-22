@@ -12,6 +12,8 @@ import torch.nn.functional as F
 
 from torch.autograd import Variable
 
+import random
+
 
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -30,7 +32,8 @@ class BasicBlock(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion*planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(in_planes, self.expansion*planes,
+                          kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(self.expansion*planes)
             )
 
@@ -56,7 +59,8 @@ class PreActBlock(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion*planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False)
+                nn.Conv2d(in_planes, self.expansion*planes,
+                          kernel_size=1, stride=stride, bias=False)
             )
 
     def forward(self, x):
@@ -75,15 +79,18 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
+                               stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion*planes, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion *
+                               planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion*planes)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion*planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(in_planes, self.expansion*planes,
+                          kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(self.expansion*planes)
             )
 
@@ -105,14 +112,17 @@ class PreActBottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
+                               stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion*planes, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion *
+                               planes, kernel_size=1, bias=False)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion*planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False)
+                nn.Conv2d(in_planes, self.expansion*planes,
+                          kernel_size=1, stride=stride, bias=False)
             )
 
     def forward(self, x):
@@ -130,7 +140,7 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         self.in_planes = 64
 
-        self.conv1 = conv3x3(3,64)
+        self.conv1 = conv3x3(3, 64)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -146,77 +156,81 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    def forward(self, x, target=None, mixup_hidden=False, mixup_alpha=None):
+    def forward(self, x, *, target=None, mixup=False, mixup_hidden=False, mixup_alpha=None, mixup_data=None, device='cuda'):
         if mixup_hidden:
-            layer_mix = random.randint(0, 2)
+            layer_mix = random.randint(0, 4) # late mixup: random.randint(0, 2)
+        elif mixup:
+            layer_mix = 0
         else:
             layer_mix = None
 
         out = x
 
-        if mixup_alpha is not None:
-            lam = get_lambda(mixup_alpha)
-            lam = torch.from_numpy(np.array([lam]).astype('float32')).cuda()
-            lam = Variable(lam)
-
-        if target is not None:
-            target_reweighted = to_one_hot(target, self.num_classes)
-
         if layer_mix == 0:
-            out, target_reweighted = mixup_process(
-                out, target_reweighted, lam=lam)
+            out, targets_a, targets_b, lam, index = mixup_data(
+                out, target, mixup_alpha, device)
 
         out = self.conv1(out)
         out = self.bn1(out)
         out = F.relu(out)
-        
+
         out = self.layer1(out)
 
         if layer_mix == 1:
-            out, target_reweighted = mixup_process(
-                out, target_reweighted, lam=lam)
+            out, targets_a, targets_b, lam, index = mixup_data(
+                out, target, mixup_alpha, device)
 
         out = self.layer2(out)
 
         if layer_mix == 2:
-            out, target_reweighted = mixup_process(
-                out, target_reweighted, lam=lam)
+            out, targets_a, targets_b, lam, index = mixup_data(
+                out, target, mixup_alpha, device)
 
         out = self.layer3(out)
+
         if layer_mix == 3:
-            out, target_reweighted = mixup_process(
-                out, target_reweighted, lam=lam)
+            out, targets_a, targets_b, lam, index = mixup_data(
+                out, target, mixup_alpha, device)
 
         out = self.layer4(out)
+
+        if layer_mix == 4:
+            out, targets_a, targets_b, lam, index = mixup_data(
+                out, target, mixup_alpha, device)
+
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
 
         if target is not None:
-            return out, target_reweighted
+            return out, targets_a, targets_b, lam, index
         else:
             return out
 
 
 def ResNet18(num_classes=10):
-    return ResNet(PreActBlock, [2,2,2,2], num_classes=num_classes)
+    return ResNet(PreActBlock, [2, 2, 2, 2], num_classes=num_classes)
+
 
 def ResNet34(num_classes=10):
-    return ResNet(BasicBlock, [3,4,6,3], num_classes=num_classes)
+    return ResNet(BasicBlock, [3, 4, 6, 3], num_classes=num_classes)
+
 
 def ResNet50(num_classes=10):
-    return ResNet(Bottleneck, [3,4,6,3], num_classes=num_classes)
+    return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=num_classes)
+
 
 def ResNet101(num_classes=10):
-    return ResNet(Bottleneck, [3,4,23,3], num_classes=num_classes)
+    return ResNet(Bottleneck, [3, 4, 23, 3], num_classes=num_classes)
+
 
 def ResNet152(num_classes=10):
-    return ResNet(Bottleneck, [3,8,36,3], num_classes=num_classes)
+    return ResNet(Bottleneck, [3, 8, 36, 3], num_classes=num_classes)
 
 
 def test():
     net = ResNet18()
-    y = net(Variable(torch.randn(1,3,32,32)))
+    y = net(Variable(torch.randn(1, 3, 32, 32)))
     print(y.size())
 
 # test()

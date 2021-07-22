@@ -141,11 +141,11 @@ def main():
 
     # path where experiments are saved
     exp_path = os.path.join(
-        './', 'noise_models_PreResNet18_{0}'.format(args.experiment_name), str(args.noise_level))
+        './', 'noise_models', 'PreResNet18_{0}'.format(args.experiment_name), str(args.noise_level))
 
     # tensorboard
     tb = SummaryWriter(os.path.join(
-        "./", args.tb_dir, "{0}-{1}".format(args.experiment_name, str(args.noise_level))))
+        "./", "tensorboard", args.tb_dir, "{0}-{1}".format(args.experiment_name, str(args.noise_level))))
 
     if not os.path.isdir(exp_path):
         os.makedirs(exp_path)
