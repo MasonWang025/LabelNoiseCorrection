@@ -156,9 +156,9 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    def forward(self, x, *, target=None, mixup=False, mixup_hidden=False, mixup_alpha=None, mixup_data=None, device='cuda'):
+    def forward(self, x, *, target=None, mixup=False, mixup_hidden=False, mixup_alpha=None, mixup_B=None, mixup_data=None, device='cuda'):
         if mixup_hidden:
-            layer_mix = random.randint(0, 4) # late mixup: random.randint(0, 2)
+            layer_mix = random.randint(1, 4) # late mixup: random.randint(0, 2)
         elif mixup:
             layer_mix = 0
         else:
@@ -168,7 +168,7 @@ class ResNet(nn.Module):
 
         if layer_mix == 0:
             out, targets_a, targets_b, lam, index = mixup_data(
-                out, target, mixup_alpha, device)
+                out, target, alpha=mixup_alpha, B=mixup_B, device=device)
 
         out = self.conv1(out)
         out = self.bn1(out)
@@ -178,25 +178,25 @@ class ResNet(nn.Module):
 
         if layer_mix == 1:
             out, targets_a, targets_b, lam, index = mixup_data(
-                out, target, mixup_alpha, device)
+                out, target, alpha=mixup_alpha, B=mixup_B, device=device)
 
         out = self.layer2(out)
 
         if layer_mix == 2:
             out, targets_a, targets_b, lam, index = mixup_data(
-                out, target, mixup_alpha, device)
+                out, target, alpha=mixup_alpha, B=mixup_B, device=device)
 
         out = self.layer3(out)
 
         if layer_mix == 3:
             out, targets_a, targets_b, lam, index = mixup_data(
-                out, target, mixup_alpha, device)
+                out, target, alpha=mixup_alpha, B=mixup_B, device=device)
 
         out = self.layer4(out)
 
         if layer_mix == 4:
             out, targets_a, targets_b, lam, index = mixup_data(
-                out, target, mixup_alpha, device)
+                out, target, alpha=mixup_alpha, B=mixup_B, device=device)
 
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)

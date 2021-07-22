@@ -184,23 +184,29 @@ def train_CrossEntropy(args, model, device, train_loader, optimizer, epoch):
 ############################# Mixup original #################################
 
 
-def mixup_data(x, y, alpha=1.0, device='cuda'):
+def mixup_data(x, y, *, alpha=1.0, B=None, device='cuda'):
     '''Returns mixed inputs, pairs of targets, and lambda'''
-    # this method was originally named mixup_data_Boot
-    # same as original mixup_data except also return index
-
-    if alpha > 0:
-        lam = np.random.beta(alpha, alpha)
-    else:
-        lam = 1
-
+    # replacing mixup_data_Boot and mixup_data_beta
     batch_size = x.size()[0]
     if device == 'cuda':
         index = torch.randperm(batch_size).to(device)
     else:
         index = torch.randperm(batch_size)
+        
+    if B is None:
+        if alpha > 0:
+            lam = np.random.beta(alpha, alpha)
+        else:
+            lam = 1
 
-    mixed_x = lam * x + (1 - lam) * x[index, :]
+        mixed_x = lam * x + (1 - lam) * x[index, :]
+    else:
+        # dynamic mixup
+        # mixup_data_Boot: mixup guided by our beta model
+        lam = ((1 - B) + (1 - B[index]))
+        mixed_x = ((1-B)/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x + \
+            ((1-B[index])/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x[index, :]
+        
     y_a, y_b = y, y[index]
     return mixed_x, y_a, y_b, lam, index
 
@@ -335,6 +341,7 @@ def train_mixUp_HardBootBeta(args, model, device, train_loader, optimizer, epoch
         loss.backward()
 
         optimizer.step()
+
         ################## monitor losses  ####################################
         loss_per_batch.append(loss.item())
         ########################################################################
@@ -442,23 +449,6 @@ def train_mixUp_SoftBootBeta(args, model, device, train_loader, optimizer, epoch
 ##############################################################################
 
 ################################ Dynamic Mixup ##################################
-# Mixup guided by our beta model
-
-def mixup_data_beta(x, y, B, device='cuda'):
-    '''Returns mixed inputs, pairs of targets, and lambda'''
-
-    batch_size = x.size()[0]
-    if device == 'cuda':
-        index = torch.randperm(batch_size).cuda()
-    else:
-        index = torch.randperm(batch_size)
-
-    lam = ((1 - B) + (1 - B[index]))
-    mixed_x = ((1-B)/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x + \
-        ((1-B[index])/lam).unsqueeze(1).unsqueeze(2).unsqueeze(3) * x[index, :]
-    y_a, y_b = y, y[index]
-    return mixed_x, y_a, y_b, index
-
 
 def mixup_criterion_beta(pred, y_a, y_b):
     lam = np.random.beta(32, 32)
@@ -466,7 +456,7 @@ def mixup_criterion_beta(pred, y_a, y_b):
 
 
 def train_mixUp_Beta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model,
-                     bmm_model_maxLoss, bmm_model_minLoss):
+                     bmm_model_maxLoss, bmm_model_minLoss, hidden_mixup=False):
     model.train()
     loss_per_batch = []
 
@@ -487,9 +477,18 @@ def train_mixUp_Beta(args, model, device, train_loader, optimizer, epoch, alpha,
             B[B <= 1e-4] = 1e-4
             B[B >= 1 - 1e-4] = 1 - 1e-4
 
-        inputs_mixed, targets_1, targets_2, index = mixup_data_beta(
-            data, target, B, device)
-        output = model(inputs_mixed)
+
+        # inputs_mixed, targets_1, targets_2, index = mixup_data_beta(
+        #     data, target, B=B, device=device)
+        # output = model(inputs_mixed)
+
+        if hidden_mixup == True:
+            output, targets_1, targets_2, lam, index = model(
+                data, target=target, mixup_hidden=True, mixup_B=B, mixup_data=mixup_data, device=device)
+        else:
+            output, targets_1, targets_2, lam, index = model(
+                data, target=target, mixup=True, mixup_B=B, mixup_data=mixup_data, device=device)
+
         output = F.log_softmax(output, dim=1)
 
         loss = mixup_criterion_beta(output, targets_1, targets_2)
@@ -533,7 +532,7 @@ def mixup_criterion_SoftHard(pred, y_a, y_b, B, index, output_x1, output_x2, Tem
 
 
 def train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer, epoch, bmm_model,
-                                   bmm_model_maxLoss, bmm_model_minLoss, countTemp, k, temp_length, reg_term, num_classes):
+                                   bmm_model_maxLoss, bmm_model_minLoss, countTemp, k, temp_length, reg_term, num_classes, hidden_mixup=False):
     model.train()
     loss_per_batch = []
 
@@ -561,9 +560,17 @@ def train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer,
             B[B <= 1e-4] = 1e-4
             B[B >= 1-1e-4] = 1-1e-4
 
-        inputs_mixed, targets_1, targets_2, index = mixup_data_beta(
-            data, target, B, device)
-        output = model(inputs_mixed)
+        # inputs_mixed, targets_1, targets_2, index = mixup_data_beta(
+        #     data, target, B=B, device=device)
+        # output = model(inputs_mixed)
+
+        if hidden_mixup == True:
+            output, targets_1, targets_2, lam, index = model(
+                data, target=target, mixup_hidden=True, mixup_B=B, mixup_data=mixup_data, device=device)
+        else:
+            output, targets_1, targets_2, lam, index = model(
+                data, target=target, mixup=True, mixup_B=B, mixup_data=mixup_data, device=device)
+
         output_mean = F.softmax(output, dim=1)
         output = F.log_softmax(output, dim=1)
 

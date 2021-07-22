@@ -56,10 +56,11 @@ def main():
                         help='alpha parameter for the mixup distribution, default: 32')
     parser.add_argument('--M', nargs='+', type=int, default=[100, 250],
                         help="Milestones for the LR sheduler, default 100 250")
-    parser.add_argument('--Mixup', type=str, default='None', choices=['None', 'Static', 'Hidden', 'Dynamic'],
+    parser.add_argument('--Mixup', type=str, default='None', choices=['None', 'Static', 'Hidden', 'Dynamic', 'Hidden-Dynamic'],
                         help="Type of bootstrapping. Available: 'None' (deactivated)(default), \
                                 'Static' (as in the paper), 'Hidden' (adapted for hidden states from Static) \
-                                'Dynamic' (BMM to mix the smaples, will use decreasing softmax), default: None")
+                                'Dynamic' (BMM to mix the smaples, will use decreasing softmax), default: None \
+                                'Hidden-Dynamic' (adapted for hidden states from Dynamic)")
     parser.add_argument('--BootBeta', type=str, default='Hard', choices=['None', 'Hard', 'Soft'],
                         help="Type of Bootstrapping guided with the BMM. Available: \
                         'None' (deactivated)(default), 'Hard' (Hard bootstrapping), 'Soft' (Soft bootstrapping), default: Hard")
@@ -154,7 +155,7 @@ def main():
 
     # the +1 is because the conditions are defined as ">" or "<" not ">="
     bootstrap_ep_std = milestones[0] + 5 + 1
-    guidedMixup_ep = 106
+    guidedMixup_ep = 56 # ORIGINALLY 106
 
     if args.Mixup == 'Dynamic':
         bootstrap_ep_mixup = guidedMixup_ep + 5
@@ -232,6 +233,27 @@ def main():
                 loss_per_epoch, acc_train_per_epoch_i, countTemp, k = train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer,
                                                                                                      epoch, bmm_model, bmm_model_maxLoss, bmm_model_minLoss,
                                                                                                      countTemp, k, temp_length, args.reg_term, num_classes)
+        ## Hidden Dynamic Mixup ##
+        # to prevent overfitting to label noise when doing hidden mixup (~80)
+        if args.Mixup == "Hidden-Dynamic":
+            alpha = args.alpha
+            if epoch < guidedMixup_ep:
+                print('\t##### Doing NORMAL HIDDEN mixup for {0} epochs #####'.format(
+                    guidedMixup_ep - 1))
+                loss_per_epoch, acc_train_per_epoch_i = train_mixUp(
+                    args, model, device, train_loader, optimizer, epoch, 32, hidden_mixup=True)
+
+            elif epoch < bootstrap_ep_mixup:
+                print('\t##### Doing Dynamic HIDDEN mixup from epoch {0} #####'.format(
+                    guidedMixup_ep))
+                loss_per_epoch, acc_train_per_epoch_i = train_mixUp_Beta(args, model, device, train_loader, optimizer, epoch, alpha, bmm_model,
+                                                                         bmm_model_maxLoss, bmm_model_minLoss, hidden_mixup=True)
+            else:
+                print("\t##### Going from SOFT BETA bootstrapping to HARD BETA with linear temperature and Dynamic HIDDEN mixup from the epoch {0} #####".format(
+                    bootstrap_ep_mixup))
+                loss_per_epoch, acc_train_per_epoch_i, countTemp, k = train_mixUp_SoftHardBetaDouble(args, model, device, train_loader, optimizer,
+                                                                                                     epoch, bmm_model, bmm_model_maxLoss, bmm_model_minLoss,
+                                                                                                     countTemp, k, temp_length, args.reg_term, num_classes, hidden_mixup=True)
 
         # tensorboard
         if tb:
