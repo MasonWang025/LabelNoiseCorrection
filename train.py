@@ -9,7 +9,6 @@ from torchvision import datasets, transforms
 import torch.nn.functional as F
 import PreResNet
 import math
-import torchvision.models as models
 import random
 import os
 import numpy as np
@@ -47,7 +46,7 @@ def main():
     parser.add_argument('--seed', type=int, default=None,
                         help='random seed, set it to go to determinist mode. We used 1 for the paper, default: None')
     parser.add_argument('--log-interval', type=int, default=100,
-                        help='how many batches to wait before logging training status, default: 10')
+                        help='how many batches to wait before logging training status, default: 100')
     parser.add_argument('--noise-level', type=float, default=80.0,
                         help='percentage of noise added to the data (values from 0. to 100.), default: 80.')
     parser.add_argument('--experiment-name', type=str, default='runs',
